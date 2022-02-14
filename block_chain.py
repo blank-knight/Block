@@ -1,12 +1,15 @@
 import hashlib
 import datetime
-import os
-from sys import int_info
-from Crypto import PublicKey
 from Crypto.Hash import SHA256
 from Crypto.Signature import DSS
 from Crypto.PublicKey import ECC
 
+'''尚未实现的功能:
+        1. 最长链确认问题.
+        2. 难度实时变化,使得十分钟左右出一个区块'''
+
+
+# 实现POW工作量难度计算(即前面有几个0)
 def diffculty(diff):
     res = ""
     for i in range(diff):
@@ -24,11 +27,12 @@ class wallet:
         # 不直接用公钥做地址是为了安全起见
         return "Wallet_address:"+SHA256.new((self.key.public_key()).encode()).hexdigest()
 
+# 实现区块
 class block:
     # 交易信息,前一个区块的hash,矿工地址,交易发起者(交易签名者)
     def __init__(self,transaction,pre_hash,wallet="",miner_address="赵文韬") -> None:
         self.loc = 1
-        self.diff = 1 # 当前区块的挖矿难度(前面要求几个0)
+        self.diff = 1 # 当前区块的挖矿难度(前面要求几个0),设置到4时就会出现明显变难了
         self.pre_hash = pre_hash
         self.timestamp = datetime.datetime.now()
         self.hash = None
@@ -38,27 +42,27 @@ class block:
         self.miner_reward = self.mine(transaction,miner_address) # 开始挖矿
         self.nex_block = None
         
-
+    # 获取当前区块信息
     def __repr__(self) -> str:
         return "loc = "+str(self.loc)+"\ntime = "+str(self.timestamp)+"\ntransaction = "\
             +self.transaction+"\nminer_reward="+self.miner_reward+"\npre_hash = "+self.pre_hash+"\nhash = "+self.hash+"\n"
         
+    # 计算hash
     def com_hash(self,transaction):
-        sig_hash = SHA256.new((transaction+self.pre_hash).encode()).hexdigest()
-        val = sig_hash+str(self.nonce)+str(self.timestamp)
+        sig_hash = SHA256.new((transaction+self.pre_hash).encode()).hexdigest() # 先将当前交易信息和前一个区块的hash进行一次hash
+        val = sig_hash+str(self.nonce)+str(self.timestamp) # 再加上时间戳和nonce随机值进行一次hash
         return hashlib.sha256(val.encode('utf-8')).hexdigest()
-
 
     # 挖矿
     def mine(self,transaction,miner_address):
-        res = self.validation() if self.wallet != "" else "" # 开始验证是否是有效的交易
+        res = self.validation() if self.wallet != "" else "" # 挖矿前先验证是否是有效的交易
         if res == 0:
             return 0
         self.nonce = 1
         pre_string = diffculty(self.diff)
         while(True):
             if self.com_hash(transaction)[0:self.diff] != pre_string[0:self.diff]:
-                self.nonce += 1
+                self.nonce += 1 # 不断尝试nonce,直到找到满足条件的hash
                 continue
             else:
                 self.hash = self.com_hash(transaction)
@@ -89,15 +93,14 @@ class block:
             print("签名无效,停止挖矿")
             return 0
 
-
+# 实现区块链
 class chain:
     def __init__(self) -> None:
-        self.first_block = self.fir_block()
-        self.length = 1
-        self.transactionPool = []
+        self.first_block = self.fir_block() # 创世区块
+        self.length = 1 # 初始化长度
+        self.transactionPool = [] # 交易池,添加交易到里面来
 
-    # fro为发送者公钥,to为接受这公钥,amount为交易具体信息
-    # signer 为签名对象
+    # 将交易添加到交易池里面,挖矿时再从里面取出来,fro为发送者公钥,to为接受这公钥,amount为交易具体信息
     def add_Transaction(self,fro,to,amount):
         if len(fro.strip()) == 0 or len(fro.strip()) == 0: # 交易地址不能为空和空格
             print("交易地址错误,请重新输入")
@@ -109,10 +112,12 @@ class chain:
         # 交易信息直接公开,可以先不用签名.
         self.transactionPool.append(string) # 有效的交易加入交易池等待矿工来挖矿
 
+    # 实现创世区块
     def fir_block(self):
         f_blcok = block("I am first blcok","") 
         return f_blcok
     
+    # 找到当前区块的前一个区块
     def find_pre_block(self):
         if self.length == 2:
             return self.first_block.nex_block
@@ -130,7 +135,7 @@ class chain:
             # print('\n'.join(('%s:%s' % item for item in dic1.items())))
             self.cur_block = self.cur_block.nex_block
 
-    # 我这里是通过指针连接的,也可以使用堆栈进行顺序连接
+    # 实现区块的添加和连接,我这里是通过指针连接的,也可以使用堆栈进行顺序连接
     def add_block(self,wallet,transaction=None):
         transaction = self.transactionPool.pop(0)
         if self.length == 1:
@@ -145,7 +150,7 @@ class chain:
             self.pre_block.nex_block.loc += self.pre_block.loc
             self.length += 1
 
-    # 获取一个区块
+    # 获取第num个区块
     def get_block(self,num):
         if num == 1:
             return self.first_block
@@ -153,9 +158,11 @@ class chain:
             self.cur_block = self.first_block.nex_block
         return self.cur_block
 
+    # 返回区块链当前长度
     def __len__(self):
         return self.length
 
+    # 验证区块链是否正常
     def validation(self):
         if self.first_block.hash != self.first_block.com_hash("I am first blcok"): # 验证创世区块
             print("数据被篡改了")
